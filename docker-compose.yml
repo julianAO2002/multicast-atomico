@@ -1,0 +1,74 @@
+# Cada servicio es un contenedor con su propia IP en la red "lan": hace de computadora separada.
+# La red bridge de Docker reenvía el tráfico IP multicast entre los contenedores que se unieron al grupo.
+#
+#   docker compose up --build --abort-on-container-exit --exit-code-from externo
+#   PERDIDA_NODO3=1 docker compose up --build --abort-on-container-exit --exit-code-from externo
+#   docker compose --profile tests run --rm --build tests
+
+name: multicast-atomico
+
+x-nodo: &nodo
+  build: .
+  image: multicast-atomico:latest
+  networks: [lan]
+  command: python -m grupo.nodo
+  stdin_open: true
+  tty: true
+
+x-grupo: &grupo
+  MIEMBROS: nodo1,nodo2,nodo3
+  GRUPO: 239.0.0.1:5007
+  PUERTO: "6000"
+
+services:
+  # nodo1 es miembro y además coordinador: recibe por TCP los mensajes de fuera del grupo.
+  nodo1:
+    <<: *nodo
+    hostname: nodo1
+    environment:
+      <<: *grupo
+      NOMBRE: nodo1
+      PUERTO_COORDINADOR: "7000"
+
+  nodo2:
+    <<: *nodo
+    hostname: nodo2
+    environment:
+      <<: *grupo
+      NOMBRE: nodo2
+      MENSAJES: "Hola grupo, soy nodo2|12345"
+      ESPERA: "3"
+
+  nodo3:
+    <<: *nodo
+    hostname: nodo3
+    environment:
+      <<: *grupo
+      NOMBRE: nodo3
+      PERDIDA: ${PERDIDA_NODO3:-0}   # 1 = nodo3 no responde nunca: todos los envíos se abortan
+
+  # Cuarta computadora, fuera del grupo: habla solo con el coordinador.
+  externo:
+    <<: *nodo
+    hostname: externo
+    command: python -m grupo.externo
+    depends_on: [nodo1, nodo2, nodo3]
+    stdin_open: false
+    tty: false
+    environment:
+      COORDINADOR: nodo1:7000
+      GRUPO: 239.0.0.1:5007
+      MENSAJES: "Mensaje desde fuera del grupo|2026"
+      INTRUSO: "1"
+      ESPERA: "6"
+
+  tests:
+    <<: *nodo
+    profiles: [tests]
+    command: python -m unittest discover -s tests -v
+    stdin_open: false
+    tty: false
+
+networks:
+  lan:
+    driver: bridge

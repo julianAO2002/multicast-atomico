@@ -1,2 +1,4 @@
 __pycache__/
 *.pyc
+# informe en PDF de la materia (se genera fuera del repositorio)
+informe/
